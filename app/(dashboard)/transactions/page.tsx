@@ -49,7 +49,11 @@ export default function TransactionsPage() {
     loadTransactions();
   };
 
-  const toggleTransfer = async (id: string, isTransfer: boolean) => {
+  const toggleTransfer = async (id: string, isTransfer: boolean, name: string) => {
+    const action = isTransfer ? "Mark as transfer" : "Unmark as transfer";
+    const confirmed = window.confirm(`${action}?\n\n"${name}"\n\nTransfers are excluded from spending totals.`);
+    if (!confirmed) return;
+
     await fetch("/api/transactions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -144,15 +148,15 @@ export default function TransactionsPage() {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button
-                      onClick={() => toggleTransfer(txn.id, !txn.isTransfer)}
+                      onClick={() => toggleTransfer(txn.id, !txn.isTransfer, txn.merchantName || txn.name)}
                       className={`text-xs px-2 py-1 rounded ${
                         txn.isTransfer
                           ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                       }`}
-                      title={txn.isTransfer ? "Unmark as transfer" : "Mark as transfer"}
+                      title={txn.isTransfer ? "Unmark as transfer" : "Mark as transfer (excludes from spending)"}
                     >
-                      {txn.isTransfer ? "Undo" : "Transfer"}
+                      {txn.isTransfer ? "Undo transfer" : "..."}
                     </button>
                   </td>
                 </tr>
