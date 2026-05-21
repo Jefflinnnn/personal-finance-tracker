@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Receipt, PiggyBank, TrendingUp, Link2, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Receipt, PieChart, PiggyBank, TrendingUp, Link2, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/spending", label: "Spending", icon: PieChart },
   { href: "/transactions", label: "Transactions", icon: Receipt },
   { href: "/budget", label: "Budget", icon: PiggyBank },
   { href: "/investments", label: "Investments", icon: TrendingUp },
