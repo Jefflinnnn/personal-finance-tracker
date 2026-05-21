@@ -15,7 +15,7 @@
     "cron:weekly": "tsx cron/weekly-analysis.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.97.1",
+    "@aws-sdk/client-bedrock-runtime": "^3.1051.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.2.1",
     "drizzle-orm": "^0.45.2",

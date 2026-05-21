@@ -3,9 +3,7 @@ import { db } from "@/lib/db";
 import { transactions, budgets, accounts, investmentHoldings, netWorthSnapshots } from "@/lib/db/schema";
 import { sql, desc, gte, lte, and } from "drizzle-orm";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic();
+import { chatWithClaude } from "@/lib/claude/client";
 
 async function getFinancialContext() {
   const now = new Date();
@@ -95,20 +93,17 @@ export async function POST(request: Request) {
 
     const context = await getFinancialContext();
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6-20250514",
-      max_tokens: 1024,
-      system: `You are a helpful personal finance assistant. You have access to the user's real financial data below. Answer questions about their spending, budget, investments, and financial health. Be concise and conversational. Use specific numbers from their data. If they ask about trends or patterns, reference actual transactions and amounts.
+    const systemPrompt = `You are a helpful personal finance assistant. You have access to the user's real financial data below. Answer questions about their spending, budget, investments, and financial health. Be concise and conversational. Use specific numbers from their data. If they ask about trends or patterns, reference actual transactions and amounts.
 
-${context}`,
-      messages: messages.map((m: { role: string; content: string }) => ({
+${context}`;
+
+    const reply = await chatWithClaude(
+      systemPrompt,
+      messages.map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
-      })),
-    });
-
-    const block = response.content[0];
-    const reply = block.type === "text" ? block.text : "I couldn't generate a response.";
+      }))
+    );
 
     return NextResponse.json({ reply });
   } catch (error) {
