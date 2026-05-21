@@ -1,67 +1,85 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
+import { formatCurrency } from "@/lib/utils";
 
 interface Account {
   id: string;
   name: string;
-  officialName: string | null;
   type: string;
   subtype: string | null;
   mask: string | null;
   balanceCurrent: string | null;
+  balanceAvailable: string | null;
   institution: string | null;
+  source: string;
+}
+
+declare global {
+  interface Window {
+    TellerConnect?: {
+      setup: (config: {
+        applicationId: string;
+        environment: string;
+        onSuccess: (enrollment: { accessToken: string; enrollment: { id: string; institution: { name: string } } }) => void;
+        onExit: () => void;
+      }) => { open: () => void };
+    };
+  }
 }
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [linkToken, setLinkToken] = useState<string | null>(null);
 
   const loadAccounts = () => {
     fetch("/api/analytics?period=month")
       .then((r) => r.json())
-      .then(() => {
-        fetch("/api/transactions?limit=0").then(() => {});
-      });
+      .then(() => {});
   };
 
   useEffect(() => {
-    fetch("/api/plaid/create-link-token", { method: "POST" })
-      .then((r) => r.json())
-      .then((data) => setLinkToken(data.link_token))
-      .catch(console.error);
-
     loadAccounts();
+
+    const script = document.createElement("script");
+    script.src = "https://cdn.teller.io/connect/connect.js";
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => { document.body.removeChild(script); };
   }, []);
 
-  const onSuccess = useCallback(async (publicToken: string, metadata: PlaidLinkOnSuccessMetadata) => {
-    await fetch("/api/plaid/exchange-token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        public_token: publicToken,
-        institution: metadata.institution,
-      }),
+  const connectAccount = useCallback(() => {
+    if (!window.TellerConnect) return;
+
+    const teller = window.TellerConnect.setup({
+      applicationId: process.env.NEXT_PUBLIC_TELLER_APP_ID || "",
+      environment: process.env.NEXT_PUBLIC_TELLER_ENV || "sandbox",
+      onSuccess: async (enrollment) => {
+        await fetch("/api/teller/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accessToken: enrollment.accessToken,
+            enrollment: enrollment.enrollment,
+          }),
+        });
+        window.location.reload();
+      },
+      onExit: () => {},
     });
-    window.location.reload();
-  }, []);
 
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess,
-  });
+    teller.open();
+  }, []);
 
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Linked Accounts</h2>
 
       <button
-        onClick={() => open()}
-        disabled={!ready}
-        className="mb-8 bg-gray-900 text-white rounded-lg px-6 py-3 text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+        onClick={connectAccount}
+        className="mb-8 bg-gray-900 text-white rounded-lg px-6 py-3 text-sm font-medium hover:bg-gray-800"
       >
-        Link New Account
+        Link Bank Account (Teller)
       </button>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -77,15 +95,22 @@ export default function AccountsPage() {
               </div>
               {acct.balanceCurrent && (
                 <p className="text-lg font-bold text-gray-900">
-                  ${parseFloat(acct.balanceCurrent).toLocaleString()}
+                  {formatCurrency(parseFloat(acct.balanceCurrent))}
                 </p>
               )}
             </div>
           </div>
         ))}
         {accounts.length === 0 && (
-          <p className="text-gray-400">No accounts linked yet. Click &quot;Link New Account&quot; to connect Chase or Fidelity.</p>
+          <p className="text-gray-400">No accounts linked yet. Click &quot;Link Bank Account&quot; to connect Chase via Teller.</p>
         )}
+      </div>
+
+      <div className="mt-8 p-4 bg-gray-50 rounded-xl border">
+        <p className="text-sm text-gray-600">
+          <strong>Fidelity investments:</strong> Teller doesn&apos;t support brokerage accounts.
+          Go to the Investments page to import your Fidelity positions via CSV export.
+        </p>
       </div>
     </div>
   );

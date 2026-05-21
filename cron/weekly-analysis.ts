@@ -6,17 +6,11 @@ const API_KEY = process.env.FINANCE_API_KEY;
 async function main() {
   console.log(`[${new Date().toISOString()}] Running weekly analysis...`);
 
-  const syncRes = await fetch(`${BASE_URL}/api/plaid/sync-transactions`, {
+  const syncRes = await fetch(`${BASE_URL}/api/teller/sync`, {
     method: "POST",
     headers: { "x-api-key": API_KEY! },
   });
-  if (!syncRes.ok) console.error("Transaction sync failed:", await syncRes.text());
-
-  const investRes = await fetch(`${BASE_URL}/api/plaid/sync-investments`, {
-    method: "POST",
-    headers: { "x-api-key": API_KEY! },
-  });
-  if (!investRes.ok) console.error("Investment sync failed:", await investRes.text());
+  if (!syncRes.ok) console.error("Teller sync failed:", await syncRes.text());
 
   const res = await fetch(`${BASE_URL}/api/cron/weekly-analysis`, {
     method: "POST",

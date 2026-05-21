@@ -6,7 +6,7 @@ const API_KEY = process.env.FINANCE_API_KEY;
 async function main() {
   console.log(`[${new Date().toISOString()}] Running daily summary...`);
 
-  const syncRes = await fetch(`${BASE_URL}/api/plaid/sync-transactions`, {
+  const syncRes = await fetch(`${BASE_URL}/api/teller/sync`, {
     method: "POST",
     headers: { "x-api-key": API_KEY! },
   });

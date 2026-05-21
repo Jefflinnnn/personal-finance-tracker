@@ -3,13 +3,11 @@ import { pgTable, uuid, text, numeric, date, timestamp, boolean, integer, pgEnum
 export const accountTypeEnum = pgEnum("account_type", ["depository", "credit", "investment", "loan", "other"]);
 export const syncStatusEnum = pgEnum("sync_status", ["success", "error", "pending"]);
 
-export const plaidItems = pgTable("plaid_items", {
+export const enrollments = pgTable("enrollments", {
   id: uuid("id").defaultRandom().primaryKey(),
-  itemId: text("item_id").notNull().unique(),
+  enrollmentId: text("enrollment_id").notNull().unique(),
   accessToken: text("access_token").notNull(),
-  institutionId: text("institution_id"),
   institutionName: text("institution_name"),
-  cursor: text("cursor"),
   status: text("status").default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -17,16 +15,16 @@ export const plaidItems = pgTable("plaid_items", {
 
 export const accounts = pgTable("accounts", {
   id: uuid("id").defaultRandom().primaryKey(),
-  plaidItemId: uuid("plaid_item_id").references(() => plaidItems.id).notNull(),
-  plaidAccountId: text("plaid_account_id").notNull().unique(),
+  enrollmentId: text("enrollment_id"),
+  tellerAccountId: text("teller_account_id").unique(),
   name: text("name").notNull(),
-  officialName: text("official_name"),
   type: accountTypeEnum("type").notNull(),
   subtype: text("subtype"),
   mask: text("mask"),
   balanceCurrent: numeric("balance_current"),
   balanceAvailable: numeric("balance_available"),
   institution: text("institution"),
+  source: text("source").default("teller").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -34,7 +32,7 @@ export const accounts = pgTable("accounts", {
 export const transactions = pgTable("transactions", {
   id: uuid("id").defaultRandom().primaryKey(),
   accountId: uuid("account_id").references(() => accounts.id).notNull(),
-  plaidTransactionId: text("plaid_transaction_id").unique(),
+  tellerTransactionId: text("teller_transaction_id").unique(),
   amount: numeric("amount").notNull(),
   date: date("date").notNull(),
   name: text("name").notNull(),
@@ -47,15 +45,15 @@ export const transactions = pgTable("transactions", {
 
 export const investmentHoldings = pgTable("investment_holdings", {
   id: uuid("id").defaultRandom().primaryKey(),
-  accountId: uuid("account_id").references(() => accounts.id).notNull(),
-  plaidSecurityId: text("plaid_security_id"),
+  accountName: text("account_name"),
   ticker: text("ticker"),
   name: text("name").notNull(),
   quantity: numeric("quantity").notNull(),
   costBasis: numeric("cost_basis"),
   currentValue: numeric("current_value").notNull(),
   closePrice: numeric("close_price"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  source: text("source").default("csv").notNull(),
+  importedAt: timestamp("imported_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
