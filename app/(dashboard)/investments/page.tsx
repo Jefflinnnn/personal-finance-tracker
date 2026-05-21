@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { PortfolioAllocation } from "@/components/charts/PortfolioAllocation";
 import { formatCurrency } from "@/lib/utils";
+import { Upload } from "lucide-react";
 
 interface Holding {
   id: string;
@@ -26,6 +27,7 @@ export default function InvestmentsPage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = () => {
@@ -37,9 +39,11 @@ export default function InvestmentsPage() {
 
   useEffect(loadData, []);
 
-  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const importFile = useCallback(async (file: File) => {
+    if (!file.name.endsWith(".csv")) {
+      setImportMessage("Please upload a CSV file.");
+      return;
+    }
 
     setImporting(true);
     setImportMessage("");
@@ -47,6 +51,12 @@ export default function InvestmentsPage() {
     try {
       const text = await file.text();
       const parsed = parseFidelityCsv(text);
+
+      if (parsed.length === 0) {
+        setImportMessage("No valid positions found in the CSV. Make sure it's a Fidelity positions export.");
+        setImporting(false);
+        return;
+      }
 
       const res = await fetch("/api/investments/import", {
         method: "POST",
@@ -67,6 +77,32 @@ export default function InvestmentsPage() {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) importFile(file);
+  }, [importFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) importFile(file);
   };
 
   return (
@@ -91,6 +127,50 @@ export default function InvestmentsPage() {
               {portfolio.gainLossPercent >= 0 ? "+" : ""}{portfolio.gainLossPercent.toFixed(2)}%
             </p>
           </div>
+        </div>
+      )}
+
+      <div
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onClick={() => fileInputRef.current?.click()}
+        className={`mb-8 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+          dragActive
+            ? "border-gray-900 bg-gray-50"
+            : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+        } ${importing ? "opacity-50 pointer-events-none" : ""}`}
+      >
+        <Upload className="h-8 w-8 mx-auto mb-3 text-gray-400" />
+        <p className="text-sm font-medium text-gray-700">
+          {importing ? "Importing..." : "Drag & drop your Fidelity CSV here"}
+        </p>
+        <p className="text-xs text-gray-400 mt-1">or click to browse</p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        <a
+          href="https://digital.fidelity.com/ftgw/digital/portfolio/positions"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-block mt-4 text-xs text-blue-600 hover:text-blue-800 underline"
+        >
+          Download positions CSV from Fidelity →
+        </a>
+      </div>
+
+      {importMessage && (
+        <div className={`mb-6 p-3 rounded-lg text-sm ${
+          importMessage.includes("failed") || importMessage.includes("Error") || importMessage.includes("No valid")
+            ? "bg-red-50 text-red-700"
+            : "bg-green-50 text-green-700"
+        }`}>
+          {importMessage}
         </div>
       )}
 
@@ -122,30 +202,20 @@ export default function InvestmentsPage() {
               );
             })}
             {holdings.length === 0 && (
-              <p className="text-sm text-gray-400">No holdings. Import from Fidelity below.</p>
+              <p className="text-sm text-gray-400">No holdings yet. Drop a Fidelity CSV above to import.</p>
             )}
           </div>
         </div>
       </div>
 
-      <div className="mt-8 bg-white border rounded-xl p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-2">Import from Fidelity</h3>
-        <p className="text-xs text-gray-400 mb-4">
-          Export your positions from Fidelity (Positions page → Download) and upload the CSV here.
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv"
-          onChange={handleCsvImport}
-          disabled={importing}
-          className="block text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-gray-900 file:text-white hover:file:bg-gray-800 disabled:opacity-50"
-        />
-        {importMessage && (
-          <p className={`mt-2 text-sm ${importMessage.includes("failed") || importMessage.includes("Error") ? "text-red-600" : "text-green-600"}`}>
-            {importMessage}
-          </p>
-        )}
+      <div className="mt-8 p-4 bg-gray-50 rounded-xl border">
+        <h4 className="text-sm font-medium text-gray-700 mb-2">How to export from Fidelity</h4>
+        <ol className="text-xs text-gray-500 space-y-1 list-decimal list-inside">
+          <li>Go to <a href="https://digital.fidelity.com/ftgw/digital/portfolio/positions" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Fidelity Positions</a></li>
+          <li>Click the &quot;Download&quot; icon (top-right of the positions table)</li>
+          <li>Select &quot;Download All&quot; to get a CSV of all your holdings</li>
+          <li>Drag the downloaded file into the drop zone above</li>
+        </ol>
       </div>
     </div>
   );

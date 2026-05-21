@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+/certs
+/teller
 
 # debug
 npm-debug.log*

@@ -1,30 +1,68 @@
+import https from "node:https";
+import fs from "node:fs";
+import path from "node:path";
+
 const TELLER_BASE_URL = "https://api.teller.io";
+
+const CERT_PATH = process.env.TELLER_CERT_PATH || path.join(process.cwd(), "teller", "certificate.pem");
+const KEY_PATH = process.env.TELLER_KEY_PATH || path.join(process.cwd(), "teller", "private_key.pem");
+
+function getTlsOptions() {
+  if (!fs.existsSync(CERT_PATH) || !fs.existsSync(KEY_PATH)) {
+    return null;
+  }
+  return {
+    cert: fs.readFileSync(CERT_PATH),
+    key: fs.readFileSync(KEY_PATH),
+  };
+}
 
 interface TellerRequestOptions {
   method?: string;
   body?: unknown;
 }
 
-export async function tellerFetch<T>(path: string, accessToken: string, options: TellerRequestOptions = {}): Promise<T> {
+export async function tellerFetch<T>(urlPath: string, accessToken: string, options: TellerRequestOptions = {}): Promise<T> {
   const { method = "GET", body } = options;
+  const tls = getTlsOptions();
 
-  const headers: Record<string, string> = {
-    "Authorization": `Basic ${Buffer.from(`${accessToken}:`).toString("base64")}`,
-    "Content-Type": "application/json",
-  };
+  const url = new URL(urlPath, TELLER_BASE_URL);
 
-  const response = await fetch(`${TELLER_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method,
+        headers: {
+          "Authorization": `Basic ${Buffer.from(`${accessToken}:`).toString("base64")}`,
+          "Content-Type": "application/json",
+        },
+        ...(tls && { cert: tls.cert, key: tls.key }),
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => { data += chunk; });
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`Teller API error (${res.statusCode}): ${data}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error(`Teller API: invalid JSON response: ${data}`));
+          }
+        });
+      }
+    );
+
+    req.on("error", reject);
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Teller API error (${response.status}): ${error}`);
-  }
-
-  return response.json();
 }
 
 export interface TellerAccount {

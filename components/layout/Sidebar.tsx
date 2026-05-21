@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Receipt, PiggyBank, TrendingUp, Link2 } from "lucide-react";
+import { LayoutDashboard, Receipt, PiggyBank, TrendingUp, Link2, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/budget", label: "Budget", icon: PiggyBank },
   { href: "/investments", label: "Investments", icon: TrendingUp },
   { href: "/accounts", label: "Accounts", icon: Link2 },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
 ];
 
 export function Sidebar() {
