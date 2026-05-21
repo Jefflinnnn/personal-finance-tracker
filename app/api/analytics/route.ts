@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions, accounts, investmentHoldings, netWorthSnapshots } from "@/lib/db/schema";
 import { sql, gte, lte, and, desc, eq } from "drizzle-orm";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
+import { format, subDays, subWeeks, startOfMonth, endOfMonth, startOfWeek, endOfWeek } from "date-fns";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -21,34 +21,49 @@ export async function GET(request: Request) {
 
   const endDate = format(now, "yyyy-MM-dd");
 
-  // Normalize spending: credit card positives are expenses, checking negatives are expenses
-  // Exclude internal transfers (credit card payments, Fidelity transfers, etc.)
-  // Use user_category if set, otherwise fall back to Teller's category
+  // Common expense filter: excludes transfers, normalizes sign by account type
+  const expenseFilter = and(
+    gte(transactions.date, startDate),
+    lte(transactions.date, endDate),
+    sql`${transactions.isTransfer} = false`,
+    sql`CASE
+      WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric > 0
+      ELSE ${transactions.amount}::numeric < 0
+    END`
+  );
+
+  const expenseAmount = sql<string>`sum(CASE
+    WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
+    ELSE -${transactions.amount}::numeric
+  END)`;
+
   const spendingByCategory = await db
     .select({
       category: sql<string>`coalesce(${transactions.userCategory}, ${transactions.category})`,
-      total: sql<string>`sum(CASE
-        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
-        ELSE -${transactions.amount}::numeric
-      END)`,
+      total: expenseAmount,
       count: sql<string>`count(*)`,
     })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
-    .where(and(
-      gte(transactions.date, startDate),
-      lte(transactions.date, endDate),
-      sql`${transactions.isTransfer} = false`,
-      sql`CASE
-        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric > 0
-        ELSE ${transactions.amount}::numeric < 0
-      END`
-    ))
+    .where(expenseFilter)
     .groupBy(sql`coalesce(${transactions.userCategory}, ${transactions.category})`);
 
   const dailySpending = await db
     .select({
       date: transactions.date,
+      total: expenseAmount,
+    })
+    .from(transactions)
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(expenseFilter)
+    .groupBy(transactions.date)
+    .orderBy(transactions.date);
+
+  // Weekly spending for the last 12 weeks
+  const twelveWeeksAgo = format(subWeeks(now, 12), "yyyy-MM-dd");
+  const weeklySpending = await db
+    .select({
+      week: sql<string>`date_trunc('week', ${transactions.date}::timestamp)::date`,
       total: sql<string>`sum(CASE
         WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
         ELSE -${transactions.amount}::numeric
@@ -57,7 +72,7 @@ export async function GET(request: Request) {
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(and(
-      gte(transactions.date, startDate),
+      gte(transactions.date, twelveWeeksAgo),
       lte(transactions.date, endDate),
       sql`${transactions.isTransfer} = false`,
       sql`CASE
@@ -65,9 +80,34 @@ export async function GET(request: Request) {
         ELSE ${transactions.amount}::numeric < 0
       END`
     ))
-    .groupBy(transactions.date)
-    .orderBy(transactions.date);
+    .groupBy(sql`date_trunc('week', ${transactions.date}::timestamp)::date`)
+    .orderBy(sql`date_trunc('week', ${transactions.date}::timestamp)::date`);
 
+  // Monthly spending for the last 6 months
+  const sixMonthsAgo = format(subDays(now, 180), "yyyy-MM-dd");
+  const monthlySpending = await db
+    .select({
+      month: sql<string>`date_trunc('month', ${transactions.date}::timestamp)::date`,
+      total: sql<string>`sum(CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
+        ELSE -${transactions.amount}::numeric
+      END)`,
+    })
+    .from(transactions)
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(and(
+      gte(transactions.date, sixMonthsAgo),
+      lte(transactions.date, endDate),
+      sql`${transactions.isTransfer} = false`,
+      sql`CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric > 0
+        ELSE ${transactions.amount}::numeric < 0
+      END`
+    ))
+    .groupBy(sql`date_trunc('month', ${transactions.date}::timestamp)::date`)
+    .orderBy(sql`date_trunc('month', ${transactions.date}::timestamp)::date`);
+
+  // Income (non-transfer deposits to checking)
   const income = await db
     .select({
       total: sql<string>`sum(${transactions.amount}::numeric)`,
@@ -79,6 +119,22 @@ export async function GET(request: Request) {
       lte(transactions.date, endDate),
       sql`${accounts.type} != 'credit' AND ${transactions.amount}::numeric > 0 AND ${transactions.isTransfer} = false`
     ));
+
+  // Monthly income for savings rate calc
+  const monthlyIncome = await db
+    .select({
+      month: sql<string>`date_trunc('month', ${transactions.date}::timestamp)::date`,
+      total: sql<string>`sum(${transactions.amount}::numeric)`,
+    })
+    .from(transactions)
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(and(
+      gte(transactions.date, sixMonthsAgo),
+      lte(transactions.date, endDate),
+      sql`${accounts.type} != 'credit' AND ${transactions.amount}::numeric > 0 AND ${transactions.isTransfer} = false`
+    ))
+    .groupBy(sql`date_trunc('month', ${transactions.date}::timestamp)::date`)
+    .orderBy(sql`date_trunc('month', ${transactions.date}::timestamp)::date`);
 
   const balances = await db
     .select({
@@ -101,9 +157,27 @@ export async function GET(request: Request) {
   const cash = parseFloat(balances[0]?.cash || "0");
   const debt = parseFloat(balances[0]?.debt || "0");
 
+  // Build savings data: income - expenses per month
+  const savingsHistory = monthlyIncome.map((inc) => {
+    const expense = monthlySpending.find((exp) => exp.month === inc.month);
+    const incomeAmt = parseFloat(inc.total);
+    const expenseAmt = expense ? parseFloat(expense.total) : 0;
+    const saved = incomeAmt - expenseAmt;
+    return {
+      month: inc.month,
+      income: incomeAmt,
+      expenses: expenseAmt,
+      saved,
+      savingsRate: incomeAmt > 0 ? (saved / incomeAmt) * 100 : 0,
+    };
+  });
+
   return NextResponse.json({
     spendingByCategory,
     dailySpending,
+    weeklySpending,
+    monthlySpending,
+    savingsHistory,
     income: parseFloat(income[0]?.total || "0"),
     balances: {
       cash,
