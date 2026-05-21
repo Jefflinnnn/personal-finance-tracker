@@ -38,7 +38,9 @@ export const transactions = pgTable("transactions", {
   name: text("name").notNull(),
   merchantName: text("merchant_name"),
   category: text("category"),
+  userCategory: text("user_category"),
   subcategory: text("subcategory"),
+  isTransfer: boolean("is_transfer").default(false).notNull(),
   pending: boolean("pending").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

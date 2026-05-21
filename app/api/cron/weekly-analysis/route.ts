@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       .limit(2);
 
     const totalBalance = await db
-      .select({ total: sql<string>`sum(${accounts.balanceCurrent}::numeric)` })
+      .select({ total: sql<string>`sum(CASE WHEN ${accounts.type} = 'credit' THEN -${accounts.balanceCurrent}::numeric ELSE ${accounts.balanceCurrent}::numeric END)` })
       .from(accounts);
 
     const totalSpent = weekTxns.reduce((sum, t) => sum + parseFloat(t.amount), 0);

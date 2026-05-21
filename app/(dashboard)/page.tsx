@@ -10,7 +10,7 @@ import { formatCurrency } from "@/lib/utils";
 interface Analytics {
   spendingByCategory: { category: string; total: string; count: string }[];
   dailySpending: { date: string; total: string }[];
-  totalBalance: string;
+  balances: { cash: number; debt: number; net: number };
   portfolio: { value: number; costBasis: number; gainLoss: number; gainLossPercent: number };
   holdings: { ticker: string | null; name: string; currentValue: string }[];
   netWorthHistory: { date: string; netWorth: string }[];
@@ -45,10 +45,20 @@ export default function OverviewPage() {
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Overview</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <StatCard
-          label="Total Balance"
-          value={formatCurrency(parseFloat(analytics.totalBalance))}
+          label="Cash"
+          value={formatCurrency(analytics.balances.cash)}
+        />
+        <StatCard
+          label="Credit Owed"
+          value={formatCurrency(analytics.balances.debt)}
+          positive={false}
+        />
+        <StatCard
+          label="Net Balance"
+          value={formatCurrency(analytics.balances.net)}
+          positive={analytics.balances.net >= 0}
         />
         <StatCard
           label="Portfolio Value"
@@ -57,7 +67,7 @@ export default function OverviewPage() {
           positive={analytics.portfolio.gainLossPercent >= 0}
         />
         <StatCard
-          label="This Month Spent"
+          label="Spent This Month"
           value={formatCurrency(dailyData.reduce((s, d) => s + d.total, 0))}
         />
       </div>

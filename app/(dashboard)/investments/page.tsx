@@ -225,35 +225,42 @@ function parseFidelityCsv(text: string) {
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) return [];
 
-  const headerLine = lines[0];
-  const headers = headerLine.split(",").map((h) => h.trim().toLowerCase().replace(/['"]/g, ""));
+  // Skip disclaimer lines at the bottom (start with quotes)
+  const dataLines = lines.filter((l) => !l.startsWith('"'));
+  if (dataLines.length < 2) return [];
+
+  const headerLine = dataLines[0];
+  const headers = parseCSVLine(headerLine).map((h) => h.trim().toLowerCase().replace(/['"]/g, ""));
 
   const tickerIdx = headers.findIndex((h) => h === "symbol" || h === "ticker");
   const nameIdx = headers.findIndex((h) => h === "description" || h === "security name" || h === "name");
   const qtyIdx = headers.findIndex((h) => h === "quantity" || h === "shares");
-  const costIdx = headers.findIndex((h) => h.includes("cost basis") || h === "cost basis total");
-  const valueIdx = headers.findIndex((h) => h.includes("current value") || h === "market value");
-  const priceIdx = headers.findIndex((h) => h.includes("last price") || h === "price");
-  const accountIdx = headers.findIndex((h) => h.includes("account"));
+  const costIdx = headers.findIndex((h) => h.includes("cost basis total") || h.includes("cost basis"));
+  const valueIdx = headers.findIndex((h) => h === "current value" || h.includes("current value") || h === "market value");
+  const priceIdx = headers.findIndex((h) => h === "last price" || h.includes("last price"));
+  const accountNameIdx = headers.findIndex((h) => h === "account name");
 
   const holdings = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i]);
+  for (let i = 1; i < dataLines.length; i++) {
+    const cols = parseCSVLine(dataLines[i]);
     if (cols.length < 3) continue;
 
-    const ticker = tickerIdx >= 0 ? cols[tickerIdx]?.trim() : null;
+    const ticker = tickerIdx >= 0 ? cols[tickerIdx]?.trim().replace(/\*+$/, "") : null;
     const name = nameIdx >= 0 ? cols[nameIdx]?.trim() : ticker || "Unknown";
     const quantity = qtyIdx >= 0 ? parseNumber(cols[qtyIdx]) : 0;
     const costBasis = costIdx >= 0 ? parseNumber(cols[costIdx]) : null;
     const currentValue = valueIdx >= 0 ? parseNumber(cols[valueIdx]) : 0;
     const closePrice = priceIdx >= 0 ? parseNumber(cols[priceIdx]) : null;
-    const accountName = accountIdx >= 0 ? cols[accountIdx]?.trim() : null;
+    const accountName = accountNameIdx >= 0 ? cols[accountNameIdx]?.trim() : null;
 
-    if (!name || quantity === 0) continue;
+    if (!name || currentValue === 0) continue;
     if (ticker === "Pending Activity" || name.toLowerCase().includes("pending")) continue;
 
-    holdings.push({ ticker, name, quantity, costBasis, currentValue, closePrice, accountName });
+    // For cash/money market positions, use 1 as quantity (value = quantity)
+    const effectiveQuantity = quantity === 0 ? 1 : quantity;
+
+    holdings.push({ ticker, name, quantity: effectiveQuantity, costBasis: costBasis || currentValue, currentValue, closePrice, accountName });
   }
 
   return holdings;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions, accounts, investmentHoldings, netWorthSnapshots } from "@/lib/db/schema";
-import { sql, gte, lte, and, desc } from "drizzle-orm";
+import { sql, gte, lte, and, desc, eq } from "drizzle-orm";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 
 export async function GET(request: Request) {
@@ -21,29 +21,69 @@ export async function GET(request: Request) {
 
   const endDate = format(now, "yyyy-MM-dd");
 
+  // Normalize spending: credit card positives are expenses, checking negatives are expenses
+  // Exclude internal transfers (credit card payments, Fidelity transfers, etc.)
+  // Use user_category if set, otherwise fall back to Teller's category
   const spendingByCategory = await db
     .select({
-      category: transactions.category,
-      total: sql<string>`sum(${transactions.amount})`,
+      category: sql<string>`coalesce(${transactions.userCategory}, ${transactions.category})`,
+      total: sql<string>`sum(CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
+        ELSE -${transactions.amount}::numeric
+      END)`,
       count: sql<string>`count(*)`,
     })
     .from(transactions)
-    .where(and(gte(transactions.date, startDate), lte(transactions.date, endDate)))
-    .groupBy(transactions.category);
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(and(
+      gte(transactions.date, startDate),
+      lte(transactions.date, endDate),
+      sql`${transactions.isTransfer} = false`,
+      sql`CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric > 0
+        ELSE ${transactions.amount}::numeric < 0
+      END`
+    ))
+    .groupBy(sql`coalesce(${transactions.userCategory}, ${transactions.category})`);
 
   const dailySpending = await db
     .select({
       date: transactions.date,
-      total: sql<string>`sum(${transactions.amount})`,
+      total: sql<string>`sum(CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric
+        ELSE -${transactions.amount}::numeric
+      END)`,
     })
     .from(transactions)
-    .where(and(gte(transactions.date, startDate), lte(transactions.date, endDate)))
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(and(
+      gte(transactions.date, startDate),
+      lte(transactions.date, endDate),
+      sql`${transactions.isTransfer} = false`,
+      sql`CASE
+        WHEN ${accounts.type} = 'credit' THEN ${transactions.amount}::numeric > 0
+        ELSE ${transactions.amount}::numeric < 0
+      END`
+    ))
     .groupBy(transactions.date)
     .orderBy(transactions.date);
 
-  const totalBalance = await db
+  const income = await db
     .select({
-      total: sql<string>`sum(${accounts.balanceCurrent}::numeric)`,
+      total: sql<string>`sum(${transactions.amount}::numeric)`,
+    })
+    .from(transactions)
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(and(
+      gte(transactions.date, startDate),
+      lte(transactions.date, endDate),
+      sql`${accounts.type} != 'credit' AND ${transactions.amount}::numeric > 0 AND ${transactions.isTransfer} = false`
+    ));
+
+  const balances = await db
+    .select({
+      cash: sql<string>`coalesce(sum(CASE WHEN ${accounts.type} != 'credit' THEN ${accounts.balanceCurrent}::numeric END), 0)`,
+      debt: sql<string>`coalesce(sum(CASE WHEN ${accounts.type} = 'credit' THEN ${accounts.balanceCurrent}::numeric END), 0)`,
     })
     .from(accounts);
 
@@ -58,10 +98,18 @@ export async function GET(request: Request) {
     .orderBy(desc(netWorthSnapshots.date))
     .limit(30);
 
+  const cash = parseFloat(balances[0]?.cash || "0");
+  const debt = parseFloat(balances[0]?.debt || "0");
+
   return NextResponse.json({
     spendingByCategory,
     dailySpending,
-    totalBalance: totalBalance[0]?.total || "0",
+    income: parseFloat(income[0]?.total || "0"),
+    balances: {
+      cash,
+      debt,
+      net: cash - debt,
+    },
     portfolio: {
       value: portfolioValue,
       costBasis: portfolioCost,
